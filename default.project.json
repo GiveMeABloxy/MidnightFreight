@@ -1,0 +1,45 @@
+{
+	"name": "Outbreak Lobby",
+	"tree": {
+		"$className": "DataModel",
+
+		"ReplicatedStorage": {
+			"$className": "ReplicatedStorage",
+			"Shared": {
+				"$path": "src/shared",
+				"$ignoreUnknownInstances": true
+			}
+		},
+
+		"ReplicatedFirst": {
+			"$className": "ReplicatedFirst",
+			"$path": "src/first",
+			"$ignoreUnknownInstances": true
+		},
+
+		"ServerScriptService": {
+			"$className": "ServerScriptService",
+			"Server": {
+				"$path": "src/server",
+				"$ignoreUnknownInstances": true
+			}
+		},
+
+		"StarterPlayer": {
+			"$className": "StarterPlayer",
+			"$ignoreUnknownInstances": true,
+			"StarterPlayerScripts": {
+				"$className": "StarterPlayerScripts",
+				"Client": {
+					"$path": "src/client",
+					"$ignoreUnknownInstances": true
+				}
+			},
+			"StarterCharacterScripts": {
+				"$className": "StarterCharacterScripts",
+				"$path": "src/character",
+				"$ignoreUnknownInstances": true
+			}
+		}
+	}
+}

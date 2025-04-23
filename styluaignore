@@ -1,0 +1,6 @@
+src/game/shared/vendor/
+src/game/client/vendor/
+src/game/server/vendor/
+src/game/shared/external/
+src/game/client/external/
+src/game/server/external/
