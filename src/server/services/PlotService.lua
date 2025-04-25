@@ -11,6 +11,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
+local CollectionService = game:GetService("CollectionService")
 
 --//Modules
 local QuickString = require(ReplicatedStorage.Shared.lib.QuickString)
@@ -20,6 +21,7 @@ local TableUtil = require(ReplicatedStorage.Packages.TableUtil)
 local plotsFolder = ServerStorage.Plots
 local biomesFolder = plotsFolder.Biomes
 local foliageFolder = ServerStorage.Foliage
+local interactablesFolder = ServerStorage.Interactables
 
 local generatedRoads = workspace.GeneratedRoads
 local generatedFoliage = workspace.GeneratedFoliage
@@ -38,7 +40,7 @@ local cachedRoads = generationCache.Roads
 local cachedTerrain = {}
 
 --//Road Configuration
-local MAX_ROADS_LOADED = 25 --//Amount of roads to load at once.
+local MAX_ROADS_LOADED = 20 --//Amount of roads to load at once.
 local MAX_ROAD_ROTATION = 50 --//Max total rotation of road segments.
 local ROAD_Y_OFFSET = 0.95 --//Offset road to prevent floating over terrain.
 
@@ -54,12 +56,12 @@ local MAX_FOLIAGE_DISTANCE = 400 --//Max distance from road to spawn foliage.
 local RIVER_COOLDOWN_PER_ROAD = 3 --//Rivers cannot be generated within x roads of each other.
 
 --//Biome Configuration
-local ROADS_PER_BIOME = 10 --//Amount of roads until a new biome is generated. (Default: 55)
+local ROADS_PER_BIOME = 55 --//Amount of roads until a new biome is generated. (Default: 55)
 
 --//Special Configuration
-local ROADS_PER_WEIGH_STATION = 15
-local ROADS_PER_TOWN = 100
-local ROADS_PER_COMPOUND = 20
+local ROADS_PER_WEIGH_STATION = 50
+local ROADS_PER_TOWN = 10
+local ROADS_PER_COMPOUND = 80
 
 --//Street Light Configuration
 local ROADS_PER_STREET_LIGHT = 2
@@ -90,6 +92,7 @@ local biomes = {
         ["FoliageRate"] = 50,
         ["BuildingRate"] = 0.2,
         ["RiverRate"] = 0.1,
+        ["FoliageWeight"] = 0,
     },
     ["Tundra"] = {
         ["PrimaryMaterial"] = Enum.Material.Snow,
@@ -100,6 +103,7 @@ local biomes = {
         ["FoliageRate"] = 30,
         ["BuildingRate"] = 0.2,
         ["RiverRate"] = 0.1,
+        ["FoliageWeight"] = 0,
     },
     ["Autumn"] = {
         ["PrimaryMaterial"] = Enum.Material.Grass,
@@ -110,6 +114,7 @@ local biomes = {
         ["FoliageRate"] = 30,
         ["BuildingRate"] = 0.2,
         ["RiverRate"] = 0.1,
+        ["FoliageWeight"] = 0,
     },
     ["Wastelands"] = {
         ["PrimaryMaterial"] = Enum.Material.Sand,
@@ -120,6 +125,7 @@ local biomes = {
         ["FoliageRate"] = 5,
         ["BuildingRate"] = 0.1,
         ["RiverRate"] = 0,
+        ["FoliageWeight"] = 0,
     },
     ["WeepingForests"] = {
         ["PrimaryMaterial"] = Enum.Material.Grass,
@@ -129,7 +135,8 @@ local biomes = {
         
         ["FoliageRate"] = 30,
         ["BuildingRate"] = 0.1,
-        ["RiverRate"] = 0.8,
+        ["RiverRate"] = 0.4,
+        ["FoliageWeight"] = 0,
     }
 }
 local shopItems = {
@@ -138,7 +145,7 @@ local shopItems = {
         ["Fuel"] = 20,
         ["NOS"] = 60,
     },
-    ["GeneralStore"] = {
+    ["ConvenienceStore"] = {
         ["DuctTape"] = 5,
         ["EnergyDrink"] = 10,
         ["CircuitBoard"] = 20,
@@ -168,8 +175,16 @@ end
 
 function PlotService:KnitStart()
     
-    --//Generate spawn plot (assuming it's not pre-placed).
+    --//Initiate foliage weight per biome.
+    for _,biomeFolder in pairs(foliageFolder:GetChildren()) do
+        local totalWeight = 0
+        for _,foliage in pairs(biomeFolder:GetChildren()) do
+            totalWeight += foliage:GetAttribute("Weight")
+        end
+        biomes[biomeFolder.Name]["FoliageWeight"] = totalWeight
+    end
 
+    --//Generate spawn plot (assuming it's not pre-placed).
     while true do
         self:UpdateRoadSegments()
         task.wait(1)
@@ -240,7 +255,19 @@ function PlotService:GenerateFoliage(road)
 
     --//Generate random foliage on both sides of road.
     for foliage = 0,biomes[road:GetAttribute("Biome")]["FoliageRate"] do
-        local newFoliage = allFoliage[math.random(1,#allFoliage)]:Clone()
+
+        local function pickRandomFoliageBasedOnWeight()
+            local randomPick = math.random(1,biomes[road:GetAttribute("Biome")]["FoliageWeight"])
+            local cumulativeWeight = 0
+            for _,vFoliage in pairs(allFoliage) do
+                cumulativeWeight += vFoliage:GetAttribute("Weight")
+                if randomPick <= cumulativeWeight then
+                    return vFoliage
+                end
+            end
+        end
+
+        local newFoliage = pickRandomFoliageBasedOnWeight():Clone()
         newFoliage.Name = "Foliage"
         newFoliage.Parent = road.Foliage
         newFoliage:SetAttribute("Id",HttpService:GenerateGUID(false))
@@ -268,18 +295,19 @@ function PlotService:GenerateFoliage(road)
         local randomRot = random:NextNumber(0,359)
         newFoliage:PivotTo(CFrame.new(roadMesh.Position.X + randomX,roadMesh.Position.Y - 1.5,randomZ) * CFrame.Angles(0,math.rad(randomRot),0))
 
+        --[[
         if math.random() < 0.05 then
             --newFoliage:SetAttribute("Enemy",true)
             local enemy = enemiesFolder:GetChildren()[math.random(1,#enemiesFolder:GetChildren())]:Clone()
             enemy.Parent = newFoliage
             enemy:PivotTo(CFrame.new(roadMesh.Position.X + randomX,roadMesh.Position.Y - 1.5,randomZ) * CFrame.Angles(0,math.rad(randomRot),0) + Vector3.new(5,2,0))
-        end
+        end]]
 
         --[//Remove foliage spawned inside of foliage.
         local cframe,size = newFoliage:GetBoundingBox()
         local parts = workspace:GetPartBoundsInBox(cframe,size + Vector3.new(0,20,0))
         for _,basePart in pairs(parts) do
-            if basePart.Parent and basePart.Parent.Name == "Foliage" and basePart.Parent:GetAttribute("Id") ~= newFoliage:GetAttribute("Id") and (basePart.Position - newFoliage:GetPivot().Position).Magnitude < 15 then
+            if basePart.Parent and basePart.Parent.Name == "Foliage" and basePart.Parent:GetAttribute("Id") ~= newFoliage:GetAttribute("Id") and (basePart.Position - newFoliage:GetPivot().Position).Magnitude < 25 then
                 basePart.Parent:Destroy()
             end
         end
@@ -534,6 +562,47 @@ function PlotService:DeclareNewBiome(allowRepeatedBiomes)
     end
 end
 
+function PlotService:SetupShop(shop)
+    if not shopItems[shop.Name] then print("Attempted to set up invalid shop.") return end
+    local shopitemsCopy = TableUtil.Keys(shopItems[shop.Name])
+
+    print(shopitemsCopy)
+    print(#shopitemsCopy)
+
+    for _,itemShop in pairs(shop.ItemShops:GetChildren()) do
+
+        --//Fetching random shop item.
+        local randomShopItem = shopitemsCopy[math.random(1,#shopitemsCopy)]
+
+        --//Removing shop item from cloned list (prevents 2 of the same item being sold).
+        local index = table.find(shopitemsCopy,randomShopItem)
+        if index then
+            table.remove(shopitemsCopy,index)
+        end
+
+        --//Find physical item and place it in the shop.
+        local findInteractable = interactablesFolder:FindFirstChild(randomShopItem)
+        if findInteractable then
+            local shopItem = findInteractable:Clone()
+
+            if CollectionService:HasTag(shopItem,"Interactable") then
+                CollectionService:RemoveTag(shopItem,"Interactable")
+            end
+            if CollectionService:HasTag(shopItem,"Loot") then
+                CollectionService:RemoveTag(shopItem,"Loot")
+            end
+
+            shopItem.Parent = itemShop
+            shopItem.Position = itemShop.PreviewItem.Position
+            itemShop.BuyItem.ProximityPrompt.ActionText = "Buy "..shopItem.Name
+            itemShop.BuyItem.ProximityPrompt.ObjectText = "$"..tostring(shopItems[shop.Name][randomShopItem])
+
+            itemShop:SetAttribute("Price",shopItems[shop.Name][randomShopItem])
+            itemShop:SetAttribute("Item",shopItem.Name)
+        end
+    end
+end
+
 function PlotService:GenerateRoad(roadNumber)
     local findCachedRoad = cachedRoads:FindFirstChild(tostring(roadNumber))
     if findCachedRoad then
@@ -651,17 +720,11 @@ function PlotService:GenerateRoad(roadNumber)
             local allGeneralStores = townBuildingsFolder:WaitForChild("GeneralStores"):GetChildren()
             local randomGeneralStore = allGeneralStores[math.random(1,#allGeneralStores)]:Clone()
 
-
             randomAutoShop.Parent = newRoad
             randomGasStation.Parent = newRoad
             randomGunStore.Parent = newRoad
             randomDoctor.Parent = newRoad
             randomGeneralStore.Parent = newRoad
-
-            
-            for _,itemShop in pairs(randomGeneralStore.ItemShops:GetChildren()) do
-                
-            end
 
             if newRoad:IsA("Model") then
                 randomAutoShop:PivotTo(newRoad:GetPivot() + Vector3.new(60,-1,0))
@@ -681,6 +744,7 @@ function PlotService:GenerateRoad(roadNumber)
                 randomGeneralStore:PivotTo(newRoad.CFrame + Vector3.new(-60,-1,210))
             end
             
+            self:SetupShop(randomGeneralStore)
         end
 
         --//New compound.
