@@ -1,149 +1,298 @@
 local Knit = require(game:GetService("ReplicatedStorage").Packages.Knit)
 
-local CameraController = Knit.CreateController{
-	Name = 'CameraController'
+local CameraController = Knit.CreateController {
+	Name = "CameraController"
 }
 
---//Game Services
+--// Services
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
---//Modules
-local Maid = require(ReplicatedStorage.Shared.lib.Maid)
+--// Internal state
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
 
---//Maids
-local cameraMaid
+local character, humanoid, head
+local bobTime, breathTime = 0, 0
+local currentBlend = 0
+local currentTilt = 0
+local lastFootstepPhase = 1
+local footstepCooldown = 0
+local forcedBaseCFrame = nil
+local recoilOffset = CFrame.new()
+local targetRecoilOffset = CFrame.new()
+local recoilRecoverSpeed = 10 -- Higher = faster snapback
+local smoothedCameraPos = nil
+local cameraSmoothingSpeed = 10 -- Lower = floatier, Higher = snappier
+local fakeArms = nil
 
---//Variables
-local fakeCamera
-local fakeCameraAP
-local fakeCameraAO
-local lastMousePos
-local insideCar = false
+local smoothedViewOffset = Vector3.zero
+local viewOffsetVelocity = Vector3.zero
+local viewLagStiffness = 10  -- subtle and slow
+local viewLagDamping = 2
+local lastCameraRotation = nil
+local smoothedViewRot = Vector3.new()
+local viewRotVelocity = Vector3.zero
 
---//Services & Controllers
-local UIController
+--// Settings
+local ENABLE_LANDING_SHAKE = true
+local BOB_SPEED = 3
+local BOB_AMOUNT = 0.1
+local BREATH_AMOUNT = 0.1
+local BLEND_SPEED = 10
+
+local MAX_TILT_ANGLE = 3 -- Z-axis strafe tilt
+local TILT_SPEED = 4 --//Greater values = faster tilt response
+
+--// Services & Controllers
+local FootstepController
+local FakeBodyController
+
+--// Helpers
+local function isFirstPerson()
+	local camDist = (camera.CFrame.Position - camera.Focus.Position).Magnitude
+	return camDist < 1 and UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter
+end
+
+local function isSitting()
+	return humanoid and humanoid.SeatPart ~= nil
+end
+
+function CameraController:CharacterAdded(char)
+	character = char
+	humanoid = char:WaitForChild("Humanoid")
+	head = char:WaitForChild("Head")
+
+	repeat
+		fakeArms = FakeBodyController:GetFakeArms()
+		task.wait(0.1)
+	until fakeArms
+	
+	bobTime = 0
+	breathTime = 0
+	currentBlend = 0
+	currentTilt = 0
+    lastFootstepPhase = 1
+    footstepCooldown = 0
+end
 
 function CameraController:KnitInit()
 
-    --//Initiate maids.
-    cameraMaid = Maid.new()
+    --// Initiate services & controllers.
+    FootstepController = Knit.GetController("FootstepController")
+	FakeBodyController = Knit.GetController("FakeBodyController")
 end
 
 function CameraController:KnitStart()
-    local player = Players.LocalPlayer
-    
-    local function updateCameraOffset(character)
-        local humanoid = character:FindFirstChild("Humanoid")
-        if not humanoid then return end
-        humanoid.CameraOffset = Vector3.new(0,0.5,0)
-    end
+	camera.CameraType = Enum.CameraType.Custom
 
-    player.CharacterAdded:Connect(function(character)
-        updateCameraOffset(character)
-    end)
+	if player.Character then
+		self:CharacterAdded(player.Character)
+	end
 
-    if player.Character then
-        updateCameraOffset(player.Character)
-    end
+	player.CharacterAdded:Connect(function(char)
+		self:CharacterAdded(char)
+	end)
 
-    --self:EnableDefaultCamera()
+    UserInputService.MouseIconEnabled = false
 
-    --[[
-    local car = workspace:WaitForChild("Car")
-    local driverSeat = car:WaitForChild("DriverSeat")
+	RunService.RenderStepped:Connect(function(dt)
+		if not character or not humanoid or not head then return end
 
-    driverSeat:GetPropertyChangedSignal("Occupant"):Connect(function()
-        if driverSeat.Occupant ~= nil then
-            local char = driverSeat.Occupant.Parent
-            if char.Name == Players.LocalPlayer.Name then
-                task.wait(1)
-                insideCar = true
+		if isFirstPerson() and not isSitting() then
+			local moveDir = humanoid.MoveDirection
+			local moveMag = moveDir.Magnitude
+			local rootPart = character:FindFirstChild("HumanoidRootPart")
+
+			--// Bobbing + breathing phases.
+			local speedFactor = humanoid.WalkSpeed / 16 -- 16 is default walk speed
+            bobTime += dt * (moveMag > 0 and BOB_SPEED * speedFactor or 0)
+			breathTime += dt
+
+            local bobPhase = math.abs(math.cos(bobTime * 2)) --// 0 at lowest point.
+			local bobOffset = Vector3.new(
+				math.sin(bobTime * 2) * BOB_AMOUNT,
+				bobPhase * BOB_AMOUNT,
+				0
+			)
+
+			local breathOffset = Vector3.new(
+				0,
+				math.sin(breathTime * 1.2) * BREATH_AMOUNT,
+				0
+			)
+
+			local targetBlend = math.clamp(moveMag, 0, 1)
+			currentBlend += (targetBlend - currentBlend) * math.clamp(dt * BLEND_SPEED, 0, 1)
+			local finalOffset = breathOffset:Lerp(bobOffset, currentBlend)
+
+			-- Strafe tilt (Z-axis)
+			local strafe = camera.CFrame.RightVector:Dot(moveDir)
+			local targetTilt = math.clamp(strafe, -1, 1) * MAX_TILT_ANGLE
+			currentTilt += (targetTilt - currentTilt) * dt * TILT_SPEED
+
+			-- Initialize smoothed position
+			if not smoothedCameraPos then
+				smoothedCameraPos = camera.CFrame.Position
+			end
+
+			-- Smooth toward current camera position
+			local targetPos = camera.CFrame.Position
+			local alpha = 1 - math.exp(-cameraSmoothingSpeed * dt)
+			smoothedCameraPos = smoothedCameraPos:Lerp(targetPos, alpha)
+
+			-- Preserve actual camera rotation
+			local rotation = camera.CFrame - camera.CFrame.Position
+			local smoothedCameraCFrame = CFrame.new(smoothedCameraPos) * rotation
+
+			-- Use smoothed CFrame
+			local baseCFrame = forcedBaseCFrame or smoothedCameraCFrame
+			forcedBaseCFrame = nil
+
+			if not lastCameraRotation then
+				lastCameraRotation = baseCFrame.Rotation
+			end
+			
+			-- Rotation difference since last frame
+			local currentRotation = baseCFrame.Rotation
+			local rotDiff = currentRotation:Inverse() * lastCameraRotation
+			lastCameraRotation = currentRotation
+
+			local relativeMoveDir = Vector3.zero
+			if rootPart then
+				
+				local moveVector = rootPart.CFrame:VectorToObjectSpace(moveDir)
+				relativeMoveDir = Vector3.new(
+					math.clamp(moveVector.X, -1, 1),
+					math.clamp(moveVector.Y, -1, 1),
+					math.clamp(moveVector.Z, -1, 1)
+				)
+			end
+			
+			-- Extract yaw/pitch change as vector-based offset
+			local _, yaw, pitch = rotDiff:ToOrientation()
+
+			-- CAMERA-based sway (you already have this)
+			local camOffset = Vector3.new(-yaw, pitch * 0.5, 0) * 0.8
+			local camRot = Vector3.new(pitch * 0.5, 0, -yaw * 0.8)
+
+			-- MOVEMENT-based sway
+			local moveOffset = Vector3.new(
+				-relativeMoveDir.X * 0.4,  -- strafe = side sway
+				0,
+				-relativeMoveDir.Z * 0.2   -- fwd/back = push/pull
+			)
+
+			local moveRot = Vector3.new(
+				0,
+				0,
+				-relativeMoveDir.X * 0.1   -- strafe = lean
+			)
+
+			local desiredViewOffset = camOffset + moveOffset
+			local desiredViewRotation = camRot + moveRot
+
+			
+
+			-- Smoothly decay recoil
+			recoilOffset = recoilOffset:Lerp(CFrame.new(), dt * recoilRecoverSpeed)
+
+			camera.CFrame = baseCFrame
+				* recoilOffset
+				* CFrame.Angles(0, 0, math.rad(-currentTilt))
+				* CFrame.new(finalOffset)
+
+			--// View model positioning.
+			local function springStep(current, target, velocity, dt, stiffness, damping)
+				local force = (target - current) * stiffness
+				local damp = velocity * damping
+				local accel = force - damp
+				velocity += accel * dt
+				current += velocity * dt
+				return current, velocity
+			end
+			
+			smoothedViewOffset, viewOffsetVelocity = springStep(
+				smoothedViewOffset,
+				desiredViewOffset,
+				viewOffsetVelocity,
+				dt,
+				viewLagStiffness,
+				viewLagDamping
+			)
+
+			smoothedViewRot, viewRotVelocity = springStep(
+				smoothedViewRot,
+				desiredViewRotation,
+				viewRotVelocity,
+				dt,
+				viewLagStiffness,
+				viewLagDamping
+			)
+			
+			-- Position the arms with smoothed lag offset
+			local offsetCF = CFrame.new(smoothedViewOffset)
+				* CFrame.Angles(
+					smoothedViewRot.X,
+					smoothedViewRot.Y,
+					smoothedViewRot.Z
+				)
+
+			if fakeArms then
+				fakeArms.Head.CFrame = baseCFrame * offsetCF
+			end
+			
+			
+			
+            --// Dynamic FOV
+            local baseFOV = 70
+            local maxFOV = 75
+            local speed = humanoid.RootPart.Velocity.Magnitude
+            local fovSpeedFactor = math.clamp(speed / 24, 0, 1) -- Adjust 24 to control when maxFOV is reached
+            local targetFOV = baseFOV + (maxFOV - baseFOV) * fovSpeedFactor
+
+            camera.FieldOfView += (targetFOV - camera.FieldOfView) * dt * 1 -- Lerp for smooth transition
+
+            --//Step detection.
+            if moveMag > 0 and footstepCooldown <= 0 and bobPhase > lastFootstepPhase then
+                local speedScale = math.clamp(humanoid.WalkSpeed / 16, 0.5, 2)
+                footstepCooldown = 0.5 / speedScale
+
+                local origin = humanoid.RootPart.Position
+                local direction = Vector3.new(0, -5, 0)
+                local params = RaycastParams.new()
+                params.FilterDescendantsInstances = {character}
+                params.FilterType = Enum.RaycastFilterType.Blacklist
+
+                local result = workspace:Raycast(origin, direction, params)
+                local material = result and result.Material or Enum.Material.SmoothPlastic
+                local hitPos = result and result.Position or origin
+
+                FootstepController:PlayFootstep(material, hitPos)
             end
-        else
-            local char = Players.LocalPlayer.Character
-            if not char then return end
-            local hum = char:FindFirstChild("Humanoid")
-            if not hum then return end
-            local seatPart = hum.SeatPart
-            
-            if not seatPart then
-                insideCar = false
-            end
-        end
-    end)]]
+
+            lastFootstepPhase = bobPhase
+            footstepCooldown -= dt
+
+			--// Landing effect.
+			if ENABLE_LANDING_SHAKE and humanoid.FloorMaterial ~= Enum.Material.Air then
+				local velocity = humanoid.RootPart.Velocity
+				if velocity.Y < -50 then
+					camera.CFrame *= CFrame.new(0, -0.3, 0)
+				end
+			end
+		end
+	end)
 end
 
-function CameraController:EnableDefaultCamera()
-    local camera = workspace.CurrentCamera
-    camera.CameraType = Enum.CameraType.Scriptable
-    
-    cameraMaid:DoCleaning()
+function CameraController:ApplyRecoil(xRecoil, yRecoil)
+	local recoilAngle = CFrame.Angles(math.rad(-yRecoil), math.rad(xRecoil), 0)
+	recoilOffset = recoilOffset * recoilAngle
+end
 
-    if not fakeCamera then
-        fakeCamera = Instance.new('Part')
-        fakeCamera.Name = "FakeCamera"
-        fakeCamera.Anchored = false
-        fakeCamera.CanCollide = false
-        fakeCamera.Massless = true
-        fakeCamera.Transparency = 1
-        fakeCamera.Parent = Players.LocalPlayer.Character
-
-        local fakeCameraAttachment = Instance.new('Attachment')
-        fakeCameraAttachment.Parent = fakeCamera
-    
-        fakeCameraAP = Instance.new('AlignPosition')
-        fakeCameraAP.Mode = Enum.PositionAlignmentMode.OneAttachment
-        fakeCameraAP.Attachment0 = fakeCameraAttachment
-        fakeCameraAP.ApplyAtCenterOfMass = true
-        fakeCameraAP.MaxForce = 99999999
-        fakeCameraAP.MaxVelocity = 99999999
-        fakeCameraAP.Responsiveness = 200
-        fakeCameraAP.RigidityEnabled = false
-        fakeCameraAP.Parent = fakeCamera
-
-        fakeCameraAO = Instance.new('AlignOrientation')
-        fakeCameraAO.Mode = Enum.OrientationAlignmentMode.OneAttachment
-        fakeCameraAO.Attachment0 = fakeCameraAttachment
-        fakeCameraAO.MaxAngularVelocity = 2000
-        fakeCameraAO.MaxTorque = 2000
-        fakeCameraAO.Responsiveness = 200
-        fakeCameraAO.Parent = fakeCamera
-    end
-
-    local function updateCamera()
-        local char = Players.LocalPlayer.Character
-        if not char then return end
-        local head = char:FindFirstChild("Head")
-        if not head then return end
-        local rootPart = char:FindFirstChild("HumanoidRootPart")
-        if not rootPart then return end
-
-        local mouseDelta = UserInputService:GetMouseDelta()
-        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
-
-        if not insideCar then
-            fakeCameraAO.CFrame *= CFrame.Angles(-mouseDelta.Y * 0.005,0,0)
-
-            local yawAxis = fakeCameraAO.CFrame:VectorToObjectSpace(Vector3.yAxis)
-            fakeCameraAO.CFrame *= CFrame.fromAxisAngle(yawAxis,-mouseDelta.X * 0.005)
-
-            fakeCameraAP.Position = head.Position
-        else
-            fakeCameraAO.CFrame *= CFrame.Angles(-mouseDelta.Y * 0.005,0,0)
-
-            local yawAxis = fakeCameraAO.CFrame:VectorToObjectSpace(Vector3.yAxis)
-            fakeCameraAO.CFrame *= CFrame.fromAxisAngle(yawAxis,-mouseDelta.X * 0.005)
-
-            fakeCamera.Position = workspace:WaitForChild("Car"):WaitForChild("DriverSeat").Position + Vector3.new(0,3.2,0)
-        end
-
-        camera.CFrame = fakeCamera.CFrame
-    end
-
-    RunService:BindToRenderStep("CameraUpdate",Enum.RenderPriority.Camera.Value + 1,updateCamera)
+function CameraController:SetFacingDirection(cframe)
+	forcedBaseCFrame = cframe
 end
 
 return CameraController

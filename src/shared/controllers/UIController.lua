@@ -34,4 +34,18 @@ function UIController:GetInteractionHUD()
     return interactionHUD
 end
 
+function UIController:GetHUD()
+    local playerGui = self:GetPlayerGui()
+    if not playerGui then return end
+    local hud = playerGui:WaitForChild("HUD")
+    return hud
+end
+
+function UIController:GetHotbarUI()
+    local playerGui = self:GetPlayerGui()
+    if not playerGui then return end
+    local hotbarUI = playerGui:WaitForChild("Hotbar")
+    return hotbarUI
+end
+
 return UIController

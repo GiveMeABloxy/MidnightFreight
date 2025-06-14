@@ -40,8 +40,6 @@ function InteractableService.Client:Uninteract(player,interactable)
         end
     end
 
-    interactable:SetNetworkOwner(nil)
-
     task.delay(1,function()
         local foundWeldArea = false
         local touchingParts = workspace:GetPartsInPart(interactable)
@@ -60,6 +58,15 @@ function InteractableService.Client:Uninteract(player,interactable)
             interactable.Anchored = true
         end
     end)
+
+    local success,err = pcall(function()
+        interactable:SetNetworkOwner(nil)
+    end)
+
+    if not success then
+        warn("Failed to unset network owner for interactable: " .. tostring(err))
+        return
+    end
 end
 
 function InteractableService.Client:Interact(player,interactable)
@@ -94,8 +101,8 @@ function InteractableService.Client:Interact(player,interactable)
     interactableAP.Attachment0 = interactableAttachment
     interactableAP.ApplyAtCenterOfMass = true
     interactableAP.MaxForce = 9999
-    interactableAP.MaxVelocity = 19999
-    interactableAP.Responsiveness = 50
+    interactableAP.MaxVelocity = 9999
+    interactableAP.Responsiveness = 80
     interactableAP.RigidityEnabled = false
     interactableAP.Parent = interactable
 
@@ -104,12 +111,19 @@ function InteractableService.Client:Interact(player,interactable)
     interactableAO.Attachment0 = interactableAttachment
     interactableAO.MaxAngularVelocity = 2000
     interactableAO.MaxTorque = 2000
-    interactableAO.Responsiveness = 200
+    interactableAO.Responsiveness = 50
     interactableAO.Parent = interactable
 
     interactable.Anchored = false
 
-    interactable:SetNetworkOwner(player)
+    local success,err = pcall(function()
+        interactable:SetNetworkOwner(player)
+    end)
+
+    if not success then
+        warn("Failed to set network owner for interactable: " .. tostring(err))
+        return
+    end
 end
 
 function InteractableService.Client:UpdateAttachmentPosition(player,newPosition)
@@ -134,12 +148,24 @@ function InteractableService.Client:DragTrailer(player,dragger)
     dragger.AlignPosition.Attachment1 = playerItemAttachment
     dragger.AlignPosition.Enabled = true
 
-    dragger:SetNetworkOwner(player)
+    local success,err = pcall(function()
+        dragger:SetNetworkOwner(player)
+    end)
+    if not success then
+        warn("Failed to set network owner for dragger: " .. tostring(err))
+        return
+    end
 end
 
 function InteractableService:UndragTrailer(dragger)
     dragger.AlignPosition.Enabled = false
-    dragger:SetNetworkOwner(nil)
+    local success,err = pcall(function()
+        dragger:SetNetworkOwner(nil)
+    end)
+    
+    if not success then
+        warn("Failed to unset network owner for dragger: " .. tostring(err))
+    end
 end
 
 function InteractableService.Client:UndragTrailer(player,dragger)
@@ -163,11 +189,18 @@ function InteractableService.Client:DraggingGate(player,targetAtt,dragging,newPo
     local gate = targetAtt.Parent.Parent:FindFirstChild("Gate")
     if not gate then return end
 
-    if dragging then
-        gate:SetNetworkOwner(player)
-    else
-        gate:SetNetworkOwner(nil)
-        targetAtt.WorldCFrame = CFrame.new(newPos)
+    local success,err = pcall(function()
+        if dragging then
+            gate:SetNetworkOwner(player)
+        else
+            gate:SetNetworkOwner(nil)
+            targetAtt.WorldCFrame = CFrame.new(newPos)
+        end
+    end)
+
+    if not success then
+        warn("Failed to set network owner for gate: " .. tostring(err))
+        return
     end
 end
 

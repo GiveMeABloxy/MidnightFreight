@@ -22,22 +22,36 @@ local promptFolder = ReplicatedStorage:WaitForChild("Prompts")
 
 --//Services & Controllers
 local UIController
+local MenuController
+local PromptService
+
 
 function PromptController:KnitInit()
 
     --//Inititate services & controllers.
     UIController = Knit.GetController("UIController")
+    MenuController = Knit.GetController("MenuController")
+    PromptService = Knit.GetService("PromptService")
 
     --//Initiate maids.
     lootPromptMaid = Maid.new()
 end
 
 function PromptController:KnitStart()
-
+    PromptService.PromptTriggered:Connect(function(proximityPrompt)
+        if CollectionService:HasTag(proximityPrompt,"Prompt") then
+            local tags = CollectionService:GetTags(proximityPrompt)
+            for _,tag in pairs(tags) do
+                if string.match(tag,"Menu") then
+                    MenuController:OpenMenu(tag,proximityPrompt)
+                    break
+                end
+            end
+        end
+    end)
 end
 
 function PromptController:RevealLootPrompt(loot)
-    print("REVEALING LOOT PROMPT!")
     if not loot then return end
     local lootHitbox = loot:FindFirstChild("Hitbox")
     if not lootHitbox then return end
@@ -47,12 +61,10 @@ function PromptController:RevealLootPrompt(loot)
     local lootValue = loot:GetAttribute("Value")
     if not lootValue then return end
 
-    print("MADE IT!")
-
+    print(loot)
+    print(loot:GetAttribute("LootId"))
     local findExistingPrompt = lootPrompts:FindFirstChild(loot:GetAttribute("LootId"))
     if findExistingPrompt then return end
-
-    print("SWAMP IZZO!")
 
     self:UnrevealLootPrompts()
     lootPromptMaid:DoCleaning()

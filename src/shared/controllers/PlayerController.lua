@@ -7,6 +7,13 @@ local PlayerController = Knit.CreateController{
 --//Game Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+--//Folders
+local surroundingEffects = workspace:WaitForChild("SurroundingEffects")
+
+--//Variables
+local surroundingEffectsTemplate = ReplicatedStorage:WaitForChild("SurroundingEffectsTemplate")
 
 function PlayerController:KnitStart()
     local player = Players.LocalPlayer
@@ -15,24 +22,28 @@ function PlayerController:KnitStart()
         local rootPart = character:FindFirstChild("HumanoidRootPart")
         if not rootPart then return end
 
-        local surroundingEffects = ReplicatedStorage:WaitForChild("SurroundingEffects"):Clone()
-        surroundingEffects.Parent = character
+        --
+        local playerSurroundingEffects = surroundingEffectsTemplate:Clone()
         local weldConstaint = Instance.new("WeldConstraint")
         weldConstaint.Parent = rootPart
         weldConstaint.Part0 = rootPart
-        weldConstaint.Part1 = surroundingEffects
-        for _,effects in pairs(surroundingEffects:GetChildren()) do
+        weldConstaint.Part1 = playerSurroundingEffects
+        for _,effects in pairs(playerSurroundingEffects:GetChildren()) do
             if effects.Name == "Grasslands" then
                 effects.Enabled = true
             else
                 effects.Enabled = false
             end
         end
-        surroundingEffects.CFrame = rootPart.CFrame + Vector3.new(0,20,0)
+
+        playerSurroundingEffects.CFrame = rootPart.CFrame + Vector3.new(0,20,0)
         repeat
+            playerSurroundingEffects.Anchored = false
             weldConstaint.Enabled = true
-            task.wait(0.5)
+            RunService.Heartbeat:Wait()
         until weldConstaint.Enabled == true
+        playerSurroundingEffects.Name = player.Name
+        playerSurroundingEffects.Parent = surroundingEffects
     end
 
     player.CharacterAdded:Connect(loadCharacter)

@@ -43,7 +43,13 @@ function PlayerService:KnitStart()
             local playerLongAttachment = Instance.new("Attachment")
             playerLongAttachment.Name = "PlayerLongAttachment"
             playerLongAttachment.Parent = rootPart
-            playerLongAttachment.Position = Vector3.new(0,0,-25)
+            playerLongAttachment.Position = Vector3.new(0,0,-200)
+
+            for _, basePart in ipairs(character:GetDescendants()) do
+                if basePart:IsA("BasePart") then
+                    basePart.CollisionGroup = "Player"
+                end
+            end
         end
 
         player.CharacterAdded:Connect(loadCharacter)

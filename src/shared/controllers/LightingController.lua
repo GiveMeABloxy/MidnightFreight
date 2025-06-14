@@ -9,18 +9,34 @@ local TweenService = game:GetService("TweenService")
 local Lighting = game:GetService("Lighting")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 --//Folders
 local generatedRoads = workspace:WaitForChild("GeneratedRoads")
 local soundscapes = workspace:WaitForChild("Soundscapes")
+local surroundingEffects = workspace:WaitForChild("SurroundingEffects")
+
+
 
 --//Variables
 local currentLighting = "Grasslands"
-local dayDuration = 30
-local nightCycleEnabled = true
+
 
 function LightingController:KnitStart()
     local player = Players.LocalPlayer
+
+    local dayNightCycleConfig = ReplicatedStorage:WaitForChild("DayNightCycleConfig")
+    local dayDuration = dayNightCycleConfig:WaitForChild("CycleDuration").Value or 30
+    local holdTime = dayNightCycleConfig:WaitForChild("HoldTime").Value or 0
+
+    local cycleEnabledBool = dayNightCycleConfig:WaitForChild("CycleEnabled")
+    local cycleEnabled
+
+    if cycleEnabledBool ~= nil then
+        cycleEnabled = cycleEnabledBool.Value
+    else
+        cycleEnabled = true --//Default to true.
+    end
 
     self:ChangeLighting(currentLighting)
 
@@ -61,8 +77,10 @@ function LightingController:KnitStart()
         end
     end)
 
+    print(cycleEnabled)
+
     --//Day & Night Cycle.
-    while true == nightCycleEnabled do
+    while cycleEnabled == true do
 
         --//Set to day.
         Lighting.ClockTime = 12
@@ -81,6 +99,7 @@ function LightingController:KnitStart()
         }):Play()
         nightTween:Play()
         nightTween.Completed:Wait()
+        task.wait(holdTime)
 
         --//Tween back to day.
         local dayTween = TweenService:Create(Lighting,TweenInfo.new((dayDuration / 2) + (dayDuration / 2) * 2.5,Enum.EasingStyle.Linear,Enum.EasingDirection.Out),{
@@ -92,6 +111,7 @@ function LightingController:KnitStart()
         }):Play()
         dayTween:Play()
         dayTween.Completed:Wait()
+        task.wait(holdTime)
     end
 end
 
@@ -141,9 +161,9 @@ function LightingController:ChangeLighting(lightingFolderName)
     local player = Players.LocalPlayer
     local char = player.Character
     if not char then return end
-    local surroundingEffects = char:FindFirstChild("SurroundingEffects")
-    if not surroundingEffects then return end
-    for _,effects in pairs(surroundingEffects:GetChildren()) do
+    local playerSurroundingEffects = surroundingEffects:FindFirstChild(player.Name)
+    if not playerSurroundingEffects then return end
+    for _,effects in pairs(playerSurroundingEffects:GetChildren()) do
         if effects.Name == lightingFolderName then
             effects.Enabled = true
         else

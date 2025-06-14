@@ -44,6 +44,7 @@ function InteractableController:KnitInit()
     interactAttachmentMaid = Maid.new()
 end
 
+--[[
 function InteractableController:KnitStart()
     local interactionHUD = UIController:GetInteractionHUD()
     local player = Players.LocalPlayer
@@ -267,6 +268,42 @@ function InteractableController:KnitStart()
 
             grabWithHands()
         else
+
+            if humanoid.SeatPart then
+                if humanoid.SeatPart.Parent.Name == "Car" then
+                    local truck = humanoid.SeatPart.Parent
+                    local cabin = truck:FindFirstChild("Cabin")
+                    if not cabin then return end
+                    local interior = cabin:FindFirstChild("Interior")
+                    if not interior then return end
+                    local steeringWheel = interior:FindFirstChild("SteeringWheel")
+                    if not steeringWheel then return end
+
+                    --//Right hand steering.
+                    local rightHandAtt = steeringWheel:FindFirstChild("RightHand")
+                    if not rightHandAtt then return end
+                    local rightArmIK = humanoid:FindFirstChild("RightArmIK")
+                    if rightArmIK then
+                        rightArmIK.Enabled = true
+                        rightArmIK.ChainRoot = humanoid.Parent:FindFirstChild("RightUpperArm")
+                        rightArmIK.EndEffector = humanoid.Parent:FindFirstChild("RightHand")
+                        rightArmIK.Target = rightHandAtt
+                    end
+
+                    --//Left hand steering.
+                    local leftHandAtt = steeringWheel:FindFirstChild("LeftHand")
+                    if not leftHandAtt then return end
+                    local leftArmIK = humanoid:FindFirstChild("LeftArmIK")
+                    if leftArmIK then
+                        leftArmIK.Enabled = true
+                        leftArmIK.ChainRoot = humanoid.Parent:FindFirstChild("LeftUpperArm")
+                        leftArmIK.EndEffector = humanoid.Parent:FindFirstChild("LeftHand")
+                        leftArmIK.Target = leftHandAtt
+                    end
+                    return
+                end
+            end
+
             local rightArmIK = humanoid:FindFirstChild("RightArmIK")
             if rightArmIK then
                 rightArmIK.Enabled = false
@@ -349,5 +386,5 @@ function InteractableController:KnitStart()
         end
     end)
 end
-
+]]
 return InteractableController
