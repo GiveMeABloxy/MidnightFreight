@@ -3,8 +3,15 @@ local GunAnimationLib = {}
 --// Game Services
 local RunService = game:GetService("RunService")
 
-function GunAnimationLib:PlayAnimation(player, animationName)
 
+
+local function getTool(player)
+    if not player then return end
+    local character = player.Character
+    if not character then return end
+
+    local tool = character:FindFirstChildOfClass("Tool")
+    return tool
 end
 
 function GunAnimationLib:PlayIdle()
@@ -25,6 +32,8 @@ function GunAnimationLib:PlayIdle()
 end
 
 function GunAnimationLib:PlayReload(player, tool)
+    if not tool then tool = getTool(player) end
+    if not tool then return end
 
     local function playServerReload()
 

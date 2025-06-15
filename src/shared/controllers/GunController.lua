@@ -72,10 +72,10 @@ function GunController:KnitStart()
         if input.KeyCode == Enum.KeyCode.R then
             local reloading = GunService:RequestReload()
             if reloading then
-                local finished = GunAnimationLib:PlayReload(Players.LocalPlayer, )
-
+                local finished = GunAnimationLib:PlayReload(Players.LocalPlayer)
+                if finished then
                     AmmoDisplayController:RevealAmmoDisplay()
-                
+                end
             end
         end
     end)
